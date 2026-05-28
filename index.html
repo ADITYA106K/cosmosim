@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>CosmoSim</title>
+  <style>
+    /* Dark space theme and basic centering for the app */
+    body {
+      margin: 0;
+      background: #050A12;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* The main simulation window */
+    canvas {
+      border: 1px solid #0A7E8C;
+      margin-top: 10px;
+    }
+
+    /* The FPS and particle counter text */
+    #stats {
+      color: #7FDBFF;
+      font: 13px monospace;
+      margin-top: 8px;
+    }
+
+    button {
+      background: #0A7E8C;
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      margin: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="canvas" width="900" height="700"></canvas>
+
+  <div id="stats">Loading WASM...</div>
+
+  <div>
+    <button onclick="Module._initUniformDust()">
+      Uniform Dust
+    </button>
+  </div>
+
+  <script src="main.js"></script>
+  <script src="cosmosim.js"></script>
+</body>
+
+</html>
