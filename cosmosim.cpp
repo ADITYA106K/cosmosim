@@ -44,11 +44,8 @@ float THETA = 0.5f;          // Barnes-Hut threshold
 // Bit-interleaves coordinates into a 64-bit Z-curve to keep spatially close particles close in memory
 uint64_t mortonCode(float x, float y)
 {
-    // Using std::min/max prevents uint32 underflows if a particle bounces slightly out of bounds
-    // This also bypasses the C++17 std::clamp Intellisense error in VS Code
     float nx = std::max(0.0f, std::min(1.0f, (x + WORLD) / (2.0f * WORLD)));
     float ny = std::max(0.0f, std::min(1.0f, (y + WORLD) / (2.0f * WORLD)));
-    
     uint32_t ix = (uint32_t)(nx * ((1 << 21) - 1));
     uint32_t iy = (uint32_t)(ny * ((1 << 21) - 1));
     uint64_t code = 0;
@@ -176,7 +173,6 @@ void computeForce(int pIdx, int nodeIdx, float &fx, float &fy)
     float dx = node.cm_x - p.x;
     float dy = node.cm_y - p.y;
     
-    // Use pure geometric distance for the approximation test, but apply softening for actual gravity
     float geomDist = std::sqrt(dx * dx + dy * dy);
 
     bool isLeaf = (node.first_child_idx == -1);
@@ -184,7 +180,7 @@ void computeForce(int pIdx, int nodeIdx, float &fx, float &fy)
 
     if (!isSelf && (isLeaf || (node.bw / geomDist) < THETA))
     {
-        float softDistSq = (dx * dx + dy * dy) + (EPSILON * EPSILON);
+        float softDistSq = dx * dx + dy * dy + EPSILON * EPSILON;
         float softDist = std::sqrt(softDistSq);
         
         float force = (G * p.mass * node.total_mass) / softDistSq;
@@ -202,52 +198,83 @@ void computeForce(int pIdx, int nodeIdx, float &fx, float &fy)
     }
 }
 
+// Merges overlapping particles and conserves momentum.
+// Swap-and-pop keeps the arrays contiguous without expensive O(N) shifts.
+void accrete()
+{
+    float MERGE_DIST = EPSILON * 2.0f;
+    int n = (int)particles.size();
+    
+    for (int i = 0; i < n; i++)
+    {
+        for (int j = i + 1; j < n; j++)
+        {
+            float dx = particles[j].x - particles[i].x;
+            float dy = particles[j].y - particles[i].y;
+            
+            if (dx * dx + dy * dy < MERGE_DIST * MERGE_DIST)
+            {
+                float mTotal = particles[i].mass + particles[j].mass;
+                particles[i].vx = (particles[i].mass * particles[i].vx + particles[j].mass * particles[j].vx) / mTotal;
+                particles[i].vy = (particles[i].mass * particles[i].vy + particles[j].mass * particles[j].vy) / mTotal;
+                particles[i].mass = mTotal;
+                
+                particles[j] = particles.back();
+                saved_fx[j]  = saved_fx.back();
+                saved_fy[j]  = saved_fy.back();
+                
+                particles.pop_back();
+                saved_fx.pop_back();
+                saved_fy.pop_back();
+                
+                n--;
+                j--;
+            }
+        }
+    }
+}
+
 EXTERN void initializeEngine(int N)
 {
     particles.clear();
     tree.clear();
     saved_fx.assign(N, 0.0f);
     saved_fy.assign(N, 0.0f);
-    particles.reserve(N); // Pre allocate memory to prevent expensive vector resizing during the simulation
-    tree.reserve(N * 4);
+    
+    // Over-reserve memory so mouse clicks never trigger an expensive vector reallocation mid-simulation
+    particles.reserve(10000);
+    tree.reserve(40000);
+    saved_fx.reserve(10000);
+    saved_fy.reserve(10000);
 }
 
 // Conserves orbital energy over time much better than standard explicit Euler
 EXTERN void update(float dt)
 {
-    int n = particles.size();
+    int n = (int)particles.size();
 
-    // Pass 1: Half-kick using forces cached at the end of the last frame
     for (int i = 0; i < n; i++)
     {
         particles[i].vx += (saved_fx[i] / particles[i].mass) * (dt * 0.5f);
         particles[i].vy += (saved_fy[i] / particles[i].mass) * (dt * 0.5f);
     }
 
-    // Pass 2: Update positions and enforce boundaries
     for (auto &p : particles)
     {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
 
         // Elastic collisions with the map edges
-        if (std::abs(p.x) > WORLD)
-        {
-            p.x = std::copysign(WORLD, p.x);
-            p.vx *= -0.8f; // Reverse direction but lose 20% speed to dampen runaway systems
-        }
-        if (std::abs(p.y) > WORLD)
-        {
-            p.y = std::copysign(WORLD, p.y);
-            p.vy *= -0.8f;
-        }
+        if (std::abs(p.x) > WORLD) { p.x = std::copysign(WORLD, p.x); p.vx *= -0.8f; }
+        if (std::abs(p.y) > WORLD) { p.y = std::copysign(WORLD, p.y); p.vy *= -0.8f; }
     }
 
-    // Pass 3: Rebuild tree once with updated positions
+    accrete();
+    n = (int)particles.size(); // Refresh count because mass accretion removes particles
+
     buildTree();
     computeCOM(0);
 
-    // Pass 4: Second half-kick and cache forces for next frame
     for (int i = 0; i < n; i++)
     {
         float fx = 0.0f, fy = 0.0f;
@@ -269,7 +296,7 @@ EXTERN float *getParticleBuffer()
 
 EXTERN int getParticleCount()
 {
-    return particles.size();
+    return (int)particles.size();
 }
 
 EXTERN void addParticle(float x, float y, float vx, float vy, float mass)
@@ -296,8 +323,62 @@ EXTERN void initUniformDust()
 
     for (int i = 0; i < 2000; i++)
     {
-        particles.push_back({pos(rng), pos(rng),
-                             vel(rng), vel(rng),
-                             mass(rng)});
+        particles.push_back({pos(rng), pos(rng), vel(rng), vel(rng), mass(rng)});
+    }
+}
+
+void initDisk(float cx, float cy, float spin, int N, float totalMass)
+{
+    std::mt19937 rng(N);
+    std::exponential_distribution<float> radDist(0.5f);
+    std::uniform_real_distribution<float> angleDist(0.0f, 2.0f * 3.14159265f);
+    std::uniform_real_distribution<float> massDist(3.0f, 15.0f);
+    
+    for (int i = 0; i < N; i++)
+    {
+        float r = radDist(rng) * 180.0f;
+        float angle = angleDist(rng);
+        float x = cx + r * std::cos(angle);
+        float y = cy + r * std::sin(angle);
+        
+        // v = sqrt(G * M / r) gives each particle the right speed for a circular orbit
+        float vCirc = std::sqrt(G * totalMass / (r + 10.0f));
+        float vx = -spin * vCirc * std::sin(angle);
+        float vy = spin * vCirc * std::cos(angle);
+        
+        particles.push_back({x, y, vx, vy, massDist(rng)});
+    }
+}
+
+EXTERN void initGalaxyCollision()
+{
+    initializeEngine(2000);
+    
+    // Two counter-rotating disks on a collision course
+    initDisk(-300.0f, -80.0f, +1.0f, 1000, 8000.0f);
+    initDisk(+300.0f, +80.0f, -1.0f, 1000, 8000.0f);
+    
+    for (int i = 1000; i < 2000; i++)
+    {
+        particles[i].vx -= 12.0f;
+        particles[i].vy -= 4.0f;
+    }
+}
+
+EXTERN void initBinaryStar()
+{
+    initializeEngine(1000);
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<float> pos(-500.0f, 500.0f);
+    std::uniform_real_distribution<float> massDist(1.0f, 8.0f);
+    
+    // Tuned velocity (v=1.2) for a stable, visually interesting elliptical orbit
+    particles.push_back({-180.0f, 0.0f, 0.0f, +1.2f, 3000.0f});
+    particles.push_back({+180.0f, 0.0f, 0.0f, -1.2f, 3000.0f});
+    
+    for (int i = 0; i < 998; i++)
+    {
+        float x = pos(rng), y = pos(rng);
+        particles.push_back({x, y, 0.0f, 0.0f, massDist(rng)});
     }
 }
