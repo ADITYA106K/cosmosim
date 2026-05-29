@@ -83,3 +83,15 @@ function render(count) {
     ctx.fill();
   }
 }
+// Click canvas to spawn a massive particle at cursor position
+canvas.addEventListener('click', function(e) {
+  if (!initialized) return;
+  const rect  = canvas.getBoundingClientRect();
+  const scale = 0.8;
+  const cx    = canvas.width  / 2;
+  const cy    = canvas.height / 2;
+  // Convert screen coords back to world coords
+  const wx = (e.clientX - rect.left - cx) / scale;
+  const wy = (e.clientY - rect.top  - cy) / scale;
+  Module._addParticle(wx, wy, 0.0, 0.0, 500.0);
+});

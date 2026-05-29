@@ -4,7 +4,7 @@ EMCC     = emcc
 CXXFLAGS = -O3 -flto -ffast-math -std=c++17
 
 # Expose the necessary C++ functions to the JavaScript bridge
-EXPORTS  = '["_update","_initUniformDust","_getParticleBuffer","_getParticleCount","_addParticle","_setTheta"]'
+EXPORTS  = '["_update","_initUniformDust","_initGalaxyCollision","_initBinaryStar","_getParticleBuffer","_getParticleCount","_addParticle","_setTheta"]'
 RUNTIME  = '["ccall","cwrap"]'
 
 wasm:
