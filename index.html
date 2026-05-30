@@ -2,24 +2,23 @@
 <html>
 
 <head>
-  <meta charset="UTF-8"> <title>CosmoSim</title>
+  <meta charset="UTF-8">
+  <title>CosmoSim</title>
   <style>
-    /* Dark space theme and basic centering for the app */
     body {
       margin: 0;
       background: #050A12;
       display: flex;
       flex-direction: column;
       align-items: center;
+      font-family: monospace;
     }
 
-    /* The main simulation window */
     canvas {
       border: 1px solid #0A7E8C;
       margin-top: 10px;
     }
 
-    /* The FPS and particle counter text */
     #stats {
       color: #7FDBFF;
       font: 13px monospace;
@@ -36,6 +35,44 @@
       font-size: 14px;
       border-radius: 3px;
     }
+
+    button:hover {
+      background: #0D9CAC;
+    }
+
+    /* Performance dashboard */
+    #dashboard {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid #0A7E8C;
+      border-radius: 4px;
+      padding: 8px 16px;
+    }
+
+    .stat-box {
+      text-align: center;
+      min-width: 80px;
+    }
+
+    .stat-val {
+      color: #7FDBFF;
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    .stat-label {
+      color: #4A7A8A;
+      font-size: 10px;
+      margin-top: 2px;
+    }
+
+    .divider {
+      width: 1px;
+      background: #0A7E8C;
+      margin: 0 4px;
+    }
   </style>
 </head>
 
@@ -44,14 +81,41 @@
 
   <div id="stats">Loading WASM...</div>
 
+  <!-- Live performance dashboard -->
+  <div id="dashboard">
+    <div class="stat-box">
+      <div class="stat-val" id="d-particles">—</div>
+      <div class="stat-label">PARTICLES</div>
+    </div>
+    <div class="divider"></div>
+    <div class="stat-box">
+      <div class="stat-val" id="d-fps">—</div>
+      <div class="stat-label">FPS</div>
+    </div>
+    <div class="divider"></div>
+    <div class="stat-box">
+      <div class="stat-val" id="d-physics">—</div>
+      <div class="stat-label">PHYSICS ms</div>
+    </div>
+    <div class="divider"></div>
+    <div class="stat-box">
+      <div class="stat-val" id="d-render">—</div>
+      <div class="stat-label">RENDER ms</div>
+    </div>
+    <div class="divider"></div>
+    <div class="stat-box">
+      <div class="stat-val" id="d-total">—</div>
+      <div class="stat-label">TOTAL ms</div>
+    </div>
+  </div>
+
   <div style="margin-top:8px;">
     <button onclick="Module._initUniformDust()">Uniform Dust</button>
     <button onclick="Module._initGalaxyCollision()">Galaxy Collision</button>
     <button onclick="Module._initBinaryStar()">Binary Star</button>
     <span style="color:#7FDBFF; font:13px monospace; margin-left:16px;">
-      θ: <input type="range" min="0.2" max="1.2" step="0.1" value="0.5"
-          style="vertical-align:middle;"
-          oninput="Module._setTheta(parseFloat(this.value)); document.getElementById('tval').textContent=parseFloat(this.value).toFixed(1)">
+      θ: <input type="range" min="0.2" max="1.2" step="0.1" value="0.5" style="vertical-align:middle;"
+        oninput="Module._setTheta(parseFloat(this.value)); document.getElementById('tval').textContent=parseFloat(this.value).toFixed(1)">
       <span id="tval">0.5</span>
       &nbsp;(0.3=accurate · 0.8=fast)
     </span>
