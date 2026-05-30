@@ -1,5 +1,8 @@
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+// WebGL context to draw everything in one go instead of 2000 loop iterations
+const gl = canvas.getContext('webgl');
+if (!gl) alert('WebGL not supported — please use Chrome or Firefox');
+
 const stats = document.getElementById('stats');
 
 let frameCount = 0;
@@ -7,6 +10,61 @@ let fps = 0;
 let fpsTimer = 0;
 let lastTime = performance.now();
 let initialized = false;
+
+// Vertex shader: sets particle positions and sizes them by mass
+const vertSrc = `
+  attribute vec2 a_position;
+  attribute float a_mass;
+  uniform vec2 u_resolution;
+  varying float v_mass;
+
+  void main() {
+    vec2 clip = (a_position / u_resolution) * 2.0 - 1.0;
+    gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+    // Logarithmic scaling prevents supermassive particles from engulfing the screen
+    gl_PointSize = clamp(log(a_mass + 1.0) * 1.8, 2.0, 14.0);
+    v_mass = a_mass;
+  }
+`;
+
+// Fragment shader: procedural glow effect (no images needed)
+const fragSrc = `
+  precision mediump float;
+  varying float v_mass;
+
+  void main() {
+    float dist = length(gl_PointCoord - vec2(0.5));
+    if (dist > 0.5) discard;
+    float brightness = 1.0 - dist * 2.0;
+    float blue = 0.6 + clamp(log(v_mass + 1.0) / 25.0, 0.0, 0.4);
+    gl_FragColor = vec4(brightness * 0.4, brightness * 0.7, brightness * blue, brightness);
+  }
+`;
+
+// Compile and wire up shaders
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, vertSrc));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fragSrc));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const posLoc = gl.getAttribLocation(prog, 'a_position');
+const massLoc = gl.getAttribLocation(prog, 'a_mass');
+const resLoc = gl.getUniformLocation(prog, 'u_resolution');
+
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.uniform2f(resLoc, canvas.width / 2, canvas.height / 2);
+
+// Additive blending so dense clusters glow bright
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
 // The Emscripten Module object acting as the JS/C++ bridge
 var Module = {
@@ -43,55 +101,61 @@ function gameLoop(timestamp) {
   const physTime = (performance.now() - t0).toFixed(2);
 
   const count = Module._getParticleCount();
+  const t1 = performance.now();
   render(count);
+  const renderTime = (performance.now() - t1).toFixed(2);
 
-  stats.textContent =
-    `Particles: ${count}  |  FPS: ${fps}  |  Physics: ${physTime}ms  |  WASM bridge active`;
+  // Live dashboard update
+  const totalTime = (parseFloat(physTime) + parseFloat(renderTime)).toFixed(2);
+  document.getElementById('d-particles').textContent = count;
+  document.getElementById('d-fps').textContent = fps;
+  document.getElementById('d-physics').textContent = physTime;
+  document.getElementById('d-render').textContent = renderTime;
+  document.getElementById('d-total').textContent = totalTime;
+
+  stats.textContent = `Particles: ${count}  |  FPS: ${fps}  |  Physics: ${physTime}ms  |  Render: ${renderTime}ms`;
 
   requestAnimationFrame(gameLoop);
 }
 
 function render(count) {
-  ctx.fillStyle = 'rgba(5, 10, 18, 0.3)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0.02, 0.04, 0.07, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  
+  if (count === 0) return;
 
   // ZERO-COPY MEMORY BRIDGE
   // Fetching a fresh pointer every frame protects against C++ vector reallocations
   const ptr = Module._getParticleBuffer();
 
   // C++ Particle struct is exactly 5 floats wide: [x, y, vx, vy, mass]
+  // CRITICAL FIX: Removed "Module." because HEAPF32 is in the global scope
   const heapView = new Float32Array(HEAPF32.buffer, ptr, count * 5);
 
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-  const scale = 0.8;
+  // Blast the entire array to the GPU in a single call
+  gl.bufferData(gl.ARRAY_BUFFER, heapView, gl.DYNAMIC_DRAW);
 
-  for (let i = 0; i < count; i++) {
-    const x = heapView[i * 5 + 0];
-    const y = heapView[i * 5 + 1];
-    const mass = heapView[i * 5 + 4];
+  // Tell WebGL how to read our 20-byte struct (offset 0 for pos, offset 16 for mass)
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 20, 0);
+  gl.vertexAttribPointer(massLoc, 1, gl.FLOAT, false, 20, 16);
+  gl.enableVertexAttribArray(posLoc);
+  gl.enableVertexAttribArray(massLoc);
 
-    const sx = cx + x * scale;
-    const sy = cy + y * scale;
-
-    // Logarithmic scaling prevents supermassive particles from engulfing the screen
-    const r = Math.min(Math.log(mass + 1) * 0.8, 4);
-
-    ctx.beginPath();
-    ctx.arc(sx, sy, r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(100, 180, 255, ${Math.min(mass / 25, 1)})`;
-    ctx.fill();
-  }
+  // Draw everything instantly
+  gl.drawArrays(gl.POINTS, 0, count);
 }
+
 // Click canvas to spawn a massive particle at cursor position
 canvas.addEventListener('click', function(e) {
   if (!initialized) return;
-  const rect  = canvas.getBoundingClientRect();
-  const scale = 0.8;
-  const cx    = canvas.width  / 2;
-  const cy    = canvas.height / 2;
+  const rect = canvas.getBoundingClientRect();
+  const scale = 1.0; // WebGL uses raw coords, removed the 0.8 scale offset
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  
   // Convert screen coords back to world coords
   const wx = (e.clientX - rect.left - cx) / scale;
-  const wy = (e.clientY - rect.top  - cy) / scale;
+  const wy = (e.clientY - rect.top - cy) / scale;
+  
   Module._addParticle(wx, wy, 0.0, 0.0, 500.0);
 });
