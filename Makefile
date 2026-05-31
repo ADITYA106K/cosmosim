@@ -4,7 +4,7 @@ EMCC     = emcc
 CXXFLAGS = -O3 -flto -ffast-math -std=c++17
 
 # Expose the necessary C++ functions to the JavaScript bridge
-EXPORTS  = '["_update","_initUniformDust","_initGalaxyCollision","_initBinaryStar","_getParticleBuffer","_getParticleCount","_addParticle","_setTheta"]'
+EXPORTS  = '["_update","_initUniformDust","_initGalaxyCollision","_initBinaryStar","_getParticleBuffer","_getParticleCount","_getNodeBuffer","_getNodeCount","_addParticle","_setTheta"]'
 RUNTIME  = '["ccall","cwrap"]'
 
 wasm:
@@ -16,13 +16,14 @@ wasm:
 	  -s ENVIRONMENT='web' \
 	  cosmosim.cpp -o cosmosim.js
 	# Copy artifacts to docs/ to serve the frontend via GitHub Pages
+	mkdir -p docs
 	cp cosmosim.js cosmosim.wasm docs/
 
 native:
 	g++ -O2 -std=c++17 -o cosmosim_native cosmosim.cpp
 
 serve:
-	http-server . -p 8080 --cors
+	python3 -m http.server 8080
 
 clean:
 	rm -f cosmosim.js cosmosim.wasm cosmosim_native

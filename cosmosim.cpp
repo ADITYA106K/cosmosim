@@ -299,6 +299,19 @@ EXTERN int getParticleCount()
     return (int)particles.size();
 }
 
+// --- QUADTREE BRIDGE ---
+// Exposes the Barnes-Hut quadtree memory directly to JavaScript for the 'Q' overlay
+EXTERN float *getNodeBuffer()
+{
+    return reinterpret_cast<float *>(tree.data());
+}
+
+EXTERN int getNodeCount()
+{
+    return (int)tree.size();
+}
+// -----------------------
+
 EXTERN void addParticle(float x, float y, float vx, float vy, float mass)
 {
     particles.push_back({x, y, vx, vy, mass});
@@ -386,7 +399,7 @@ EXTERN void initBinaryStar()
         float x = pos(rng), y = pos(rng);
         particles.push_back({x, y, 0.0f, 0.0f, massDist(rng)});
     }
-} // <-- THIS WAS THE MISSING BRACKET!
+} 
 
 // 1. Calculate Total Kinetic Energy (K = 1/2 * m * v^2)
 EXTERN double getKineticEnergy() {
