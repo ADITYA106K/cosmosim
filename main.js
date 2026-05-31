@@ -18,16 +18,25 @@ let fpsTimer = 0;
 let lastTime = performance.now();
 let initialized = false;
 
+// --- NEW CAMERA STATE ---
+let cameraX = 0, cameraY = 0;
+let zoom = 1.0;
+let isDragging = false;
+let lastMouseX = 0, lastMouseY = 0;
+let hasDragged = false;
+
 // Vertex shader: sets particle positions and sizes them by mass
 const vertSrc = `
   attribute vec2 a_position;
   attribute float a_mass;
   uniform vec2 u_resolution;
+  uniform vec2 u_offset; // NEW: Camera pan
+  uniform float u_zoom;  // NEW: Camera zoom
   varying float v_mass;
 
   void main() {
-    // MINIMAL FIX: Removed "* 2.0 - 1.0" so the C++ (0,0) origin stays perfectly centered
-    vec2 clip = a_position / u_resolution;
+    // CAMERA MATH: Shift the universe by offset, scale by zoom
+    vec2 clip = (a_position - u_offset) / (u_resolution / u_zoom);
     gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
     // Logarithmic scaling prevents supermassive particles from engulfing the screen
     gl_PointSize = clamp(log(a_mass + 1.0) * 1.8, 2.0, 14.0);
@@ -65,6 +74,8 @@ gl.useProgram(prog);
 const posLoc = gl.getAttribLocation(prog, 'a_position');
 const massLoc = gl.getAttribLocation(prog, 'a_mass');
 const resLoc = gl.getUniformLocation(prog, 'u_resolution');
+const offsetLoc = gl.getUniformLocation(prog, 'u_offset'); // NEW
+const zoomLoc = gl.getUniformLocation(prog, 'u_zoom');     // NEW
 
 const vbo = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
@@ -107,7 +118,7 @@ function gameLoop(timestamp) {
   const t0 = performance.now();
   Module._update(dt);
   
-  // --- SURGICAL INSERTION: FETCH DIAGNOSTICS FROM C++ ---
+  // --- FETCH DIAGNOSTICS FROM C++ ---
   const ke = Module._getKineticEnergy();
   const pe = Module._getPotentialEnergy();
   const te = Module._getTotalEnergy();
@@ -122,7 +133,7 @@ function gameLoop(timestamp) {
   const count = Module._getParticleCount();
   const t1 = performance.now();
   render(count);
-  drawEnergyGraph(); // <-- SURGICAL INSERTION: Draw the graph every frame
+  drawEnergyGraph(); // Draw the graph every frame
   const renderTime = (performance.now() - t1).toFixed(2);
 
   // Live dashboard update
@@ -144,6 +155,10 @@ function render(count) {
   
   if (count === 0) return;
 
+  // Pass current camera state to the GPU
+  gl.uniform2f(offsetLoc, cameraX, cameraY);
+  gl.uniform1f(zoomLoc, zoom);
+
   // ZERO-COPY MEMORY BRIDGE
   const ptr = Module._getParticleBuffer();
   const heapView = new Float32Array(HEAPF32.buffer, ptr, count * 5);
@@ -158,7 +173,7 @@ function render(count) {
   gl.drawArrays(gl.POINTS, 0, count);
 }
 
-// --- SURGICAL INSERTION: THE MATH RENDERER ---
+// --- THE MATH RENDERER ---
 function drawEnergyGraph() {
   ctx.clearRect(0, 0, eCanvas.width, eCanvas.height);
   if (energyHistory.length === 0) return;
@@ -218,16 +233,56 @@ function drawEnergyGraph() {
 }
 // ----------------------------------------------
 
-// Click canvas to spawn a massive particle at cursor position
-canvas.addEventListener('click', function(e) {
-  if (!initialized) return;
-  const rect = canvas.getBoundingClientRect();
-  const scale = 1.0; 
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
+// ─── CAMERA CONTROLS ──────────────────────────────────────────
+
+canvas.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  hasDragged = false;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  hasDragged = true;
   
-  const wx = (e.clientX - rect.left - cx) / scale;
-  const wy = (e.clientY - rect.top - cy) / scale;
+  // Calculate how far the mouse moved, adjusted for zoom
+  const dx = (e.clientX - lastMouseX) / zoom;
+  const dy = (e.clientY - lastMouseY) / zoom;
   
-  Module._addParticle(wx, wy, 0.0, 0.0, 500.0);
+  // Pan the camera inversely to the mouse movement
+  cameraX -= dx;
+  cameraY -= dy;
+  
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+});
+
+canvas.addEventListener('mouseup', (e) => {
+  isDragging = false;
+  
+  // If they just clicked without dragging, spawn a particle!
+  if (!hasDragged && initialized) {
+    const rect = canvas.getBoundingClientRect();
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    
+    // Reverse-engineer the screen coordinates back into C++ world coordinates, factoring in zoom and pan
+    const wx = ((e.clientX - rect.left - cx) / zoom) + cameraX;
+    const wy = ((e.clientY - rect.top - cy) / zoom) + cameraY;
+    
+    Module._addParticle(wx, wy, 0.0, 0.0, 500.0);
+  }
+});
+
+// Zoom in and out with the mouse wheel
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (e.deltaY < 0) {
+    zoom *= 1.1; // Zoom in
+  } else {
+    zoom *= 0.9; // Zoom out
+  }
+  // Prevent zooming out so far the math breaks
+  if (zoom < 0.1) zoom = 0.1; 
 });
