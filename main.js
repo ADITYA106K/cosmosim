@@ -19,7 +19,8 @@ const vertSrc = `
   varying float v_mass;
 
   void main() {
-    vec2 clip = (a_position / u_resolution) * 2.0 - 1.0;
+    // MINIMAL FIX: Removed "* 2.0 - 1.0" so the C++ (0,0) origin stays perfectly centered
+    vec2 clip = a_position / u_resolution;
     gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
     // Logarithmic scaling prevents supermassive particles from engulfing the screen
     gl_PointSize = clamp(log(a_mass + 1.0) * 1.8, 2.0, 14.0);
