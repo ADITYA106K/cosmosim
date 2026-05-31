@@ -78,7 +78,7 @@
 
 <body>
   <canvas id="canvas" width="900" height="700"></canvas>
-
+  <canvas id="energyCanvas" width="900" height="120" style="background: rgba(0,0,0,0.5); margin-top: 5px; border-radius: 4px;"></canvas>
   <div id="stats">Loading WASM...</div>
 
   <!-- Live performance dashboard -->
@@ -110,9 +110,9 @@
   </div>
 
   <div style="margin-top:8px;">
-    <button onclick="Module._initUniformDust()">Uniform Dust</button>
-    <button onclick="Module._initGalaxyCollision()">Galaxy Collision</button>
-    <button onclick="Module._initBinaryStar()">Binary Star</button>
+    <button onclick="window.energyHistory = []; Module._initUniformDust()">Uniform Dust</button>
+    <button onclick="window.energyHistory = []; Module._initGalaxyCollision()">Galaxy Collision</button>
+    <button onclick="window.energyHistory = []; Module._initBinaryStar()">Binary Star</button>
     <span style="color:#7FDBFF; font:13px monospace; margin-left:16px;">
       θ: <input type="range" min="0.2" max="1.2" step="0.1" value="0.5" style="vertical-align:middle;"
         oninput="Module._setTheta(parseFloat(this.value)); document.getElementById('tval').textContent=parseFloat(this.value).toFixed(1)">

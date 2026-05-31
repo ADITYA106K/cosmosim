@@ -5,6 +5,13 @@ if (!gl) alert('WebGL not supported — please use Chrome or Firefox');
 
 const stats = document.getElementById('stats');
 
+// ENERGY GRAPH SETUP
+const eCanvas = document.getElementById('energyCanvas');
+const ctx = eCanvas.getContext('2d');
+ctx.font = "11px monospace";
+let energyHistory = []; 
+const MAX_HISTORY = 900; // Store exactly enough data points to fill the 900px wide canvas
+
 let frameCount = 0;
 let fps = 0;
 let fpsTimer = 0;
@@ -99,11 +106,23 @@ function gameLoop(timestamp) {
 
   const t0 = performance.now();
   Module._update(dt);
+  
+  // --- SURGICAL INSERTION: FETCH DIAGNOSTICS FROM C++ ---
+  const ke = Module._getKineticEnergy();
+  const pe = Module._getPotentialEnergy();
+  const te = Module._getTotalEnergy();
+  
+  // Push to history array and shift if it gets too long
+  energyHistory.push({ke, pe, te});
+  if (energyHistory.length > MAX_HISTORY) energyHistory.shift();
+  // ------------------------------------------------------
+
   const physTime = (performance.now() - t0).toFixed(2);
 
   const count = Module._getParticleCount();
   const t1 = performance.now();
   render(count);
+  drawEnergyGraph(); // <-- SURGICAL INSERTION: Draw the graph every frame
   const renderTime = (performance.now() - t1).toFixed(2);
 
   // Live dashboard update
@@ -126,35 +145,87 @@ function render(count) {
   if (count === 0) return;
 
   // ZERO-COPY MEMORY BRIDGE
-  // Fetching a fresh pointer every frame protects against C++ vector reallocations
   const ptr = Module._getParticleBuffer();
-
-  // C++ Particle struct is exactly 5 floats wide: [x, y, vx, vy, mass]
-  // CRITICAL FIX: Removed "Module." because HEAPF32 is in the global scope
   const heapView = new Float32Array(HEAPF32.buffer, ptr, count * 5);
 
-  // Blast the entire array to the GPU in a single call
   gl.bufferData(gl.ARRAY_BUFFER, heapView, gl.DYNAMIC_DRAW);
 
-  // Tell WebGL how to read our 20-byte struct (offset 0 for pos, offset 16 for mass)
   gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 20, 0);
   gl.vertexAttribPointer(massLoc, 1, gl.FLOAT, false, 20, 16);
   gl.enableVertexAttribArray(posLoc);
   gl.enableVertexAttribArray(massLoc);
 
-  // Draw everything instantly
   gl.drawArrays(gl.POINTS, 0, count);
 }
+
+// --- SURGICAL INSERTION: THE MATH RENDERER ---
+function drawEnergyGraph() {
+  ctx.clearRect(0, 0, eCanvas.width, eCanvas.height);
+  if (energyHistory.length === 0) return;
+
+  // 1. Find min/max boundaries to dynamically auto-scale the graph's Y-axis
+  let maxE = -Infinity, minE = Infinity;
+  for (let d of energyHistory) {
+      if (d.ke > maxE) maxE = d.ke;
+      if (d.pe < minE) minE = d.pe;
+  }
+  
+  let range = maxE - minE;
+  if (range === 0) range = 1;
+  let scale = eCanvas.height / (range * 1.2);
+  let baseline = maxE + range * 0.1; // Push the graph down slightly
+
+  function getY(val) { return (baseline - val) * scale; }
+
+  // 2. Draw 0-Axis Baseline (Ghostly white line)
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.beginPath(); ctx.moveTo(0, getY(0)); ctx.lineTo(eCanvas.width, getY(0)); ctx.stroke();
+
+  // 3. Draw Potential Energy (Deep Cyan)
+  ctx.strokeStyle = "#0A7E8C"; 
+  ctx.beginPath();
+  for(let i=0; i<energyHistory.length; i++) {
+      if(i===0) ctx.moveTo(i, getY(energyHistory[i].pe));
+      else ctx.lineTo(i, getY(energyHistory[i].pe));
+  }
+  ctx.stroke();
+
+  // 4. Draw Kinetic Energy (Gold)
+  ctx.strokeStyle = "#DDAA00"; 
+  ctx.beginPath();
+  for(let i=0; i<energyHistory.length; i++) {
+      if(i===0) ctx.moveTo(i, getY(energyHistory[i].ke));
+      else ctx.lineTo(i, getY(energyHistory[i].ke));
+  }
+  ctx.stroke();
+
+  // 5. Draw Total Energy (Thick White Line)
+  ctx.strokeStyle = "#FFFFFF"; 
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for(let i=0; i<energyHistory.length; i++) {
+      if(i===0) ctx.moveTo(i, getY(energyHistory[i].te));
+      else ctx.lineTo(i, getY(energyHistory[i].te));
+  }
+  ctx.stroke();
+  ctx.lineWidth = 1;
+
+  // 6. Print live metric numbers
+  let last = energyHistory[energyHistory.length-1];
+  ctx.fillStyle = "#DDAA00"; ctx.fillText("Kinetic:   " + Math.round(last.ke), 10, 16);
+  ctx.fillStyle = "#0A7E8C"; ctx.fillText("Potential: " + Math.round(last.pe), 10, 32);
+  ctx.fillStyle = "#FFFFFF"; ctx.fillText("TOTAL (E): " + Math.round(last.te), 10, 48);
+}
+// ----------------------------------------------
 
 // Click canvas to spawn a massive particle at cursor position
 canvas.addEventListener('click', function(e) {
   if (!initialized) return;
   const rect = canvas.getBoundingClientRect();
-  const scale = 1.0; // WebGL uses raw coords, removed the 0.8 scale offset
+  const scale = 1.0; 
   const cx = canvas.width / 2;
   const cy = canvas.height / 2;
   
-  // Convert screen coords back to world coords
   const wx = (e.clientX - rect.left - cx) / scale;
   const wy = (e.clientY - rect.top - cy) / scale;
   
