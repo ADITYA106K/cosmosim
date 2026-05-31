@@ -25,36 +25,89 @@ let isDragging = false;
 let lastMouseX = 0, lastMouseY = 0;
 let hasDragged = false;
 
-// Vertex shader: sets particle positions and sizes them by mass
+// ─── ASTROPHYSICS VERTEX SHADER ─────────────────────────────
 const vertSrc = `
   attribute vec2 a_position;
   attribute float a_mass;
   uniform vec2 u_resolution;
-  uniform vec2 u_offset; // NEW: Camera pan
-  uniform float u_zoom;  // NEW: Camera zoom
+  uniform vec2 u_offset;
+  uniform float u_zoom;
   varying float v_mass;
 
   void main() {
-    // CAMERA MATH: Shift the universe by offset, scale by zoom
+    // 1. Camera Math
     vec2 clip = (a_position - u_offset) / (u_resolution / u_zoom);
     gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-    // Logarithmic scaling prevents supermassive particles from engulfing the screen
-    gl_PointSize = clamp(log(a_mass + 1.0) * 1.8, 2.0, 14.0);
+    
+    // 2. Physical Scaling: Multiply the base size by the camera zoom
+    // CRANKED UP from 5.0 to 12.0 for much bolder, heavier stars
+    float baseRadius = log(a_mass + 1.0) * 12.0; 
+    float screenRadius = baseRadius * u_zoom;
+    
+    // INCREASED MINIMUM to 6.0 so even tiny dust particles are clearly visible
+    // INCREASED MAXIMUM to 400.0 so giant cores look truly cinematic when zoomed in
+    gl_PointSize = clamp(screenRadius, 6.0, 400.0);
     v_mass = a_mass;
   }
 `;
 
-// Fragment shader: procedural glow effect (no images needed)
+// ─── ASTROPHYSICS FRAGMENT SHADER ───────────────────────────
 const fragSrc = `
   precision mediump float;
   varying float v_mass;
 
+  // Ultra-fast pseudo-random noise generator for solar surface texture
+  float random(vec2 st) {
+      return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+  }
+
   void main() {
-    float dist = length(gl_PointCoord - vec2(0.5));
-    if (dist > 0.5) discard;
-    float brightness = 1.0 - dist * 2.0;
-    float blue = 0.6 + clamp(log(v_mass + 1.0) / 25.0, 0.0, 0.4);
-    gl_FragColor = vec4(brightness * 0.4, brightness * 0.7, brightness * blue, brightness);
+    vec2 coord = gl_PointCoord - vec2(0.5);
+    float r = length(coord) * 2.0; 
+    if (r > 1.0) discard;
+
+    // 1. Base Stellar Colors
+    vec3 color;
+    if (v_mass < 20.0) {
+        color = vec3(1.0, 0.35, 0.1);     // Red Dwarf
+    } else if (v_mass < 500.0) {
+        color = vec3(1.0, 0.8, 0.3);      // Yellow/Orange Sun
+    } else {
+        color = vec3(0.5, 0.8, 1.0);      // Blue Giant
+    }
+
+    // 2. Limb Darkening & 3D Sphere Illusion (r < 0.15 is the physical body)
+    float coreRadius = 0.15;
+    float isCore = 1.0 - smoothstep(coreRadius - 0.02, coreRadius + 0.02, r);
+    
+    // Calculate spherical depth (1.0 at center, 0.0 at edge) for a 3D look
+    float z = sqrt(max(0.0, 1.0 - (r / coreRadius) * (r / coreRadius)));
+    
+    // Add solar granulation (texture) using the noise function
+    float surfaceNoise = random(gl_PointCoord * 15.0) * 0.15;
+    vec3 surfaceColor = color * (z - surfaceNoise) * 1.5;
+
+    // 3. Diffraction Spikes (Lens Flare for bright stars)
+    // Creates the '+' shape seen in telescopic photography
+    float flareX = max(0.0, 1.0 - abs(coord.y) * 50.0) * exp(-abs(coord.x) * 3.0);
+    float flareY = max(0.0, 1.0 - abs(coord.x) * 50.0) * exp(-abs(coord.y) * 3.0);
+    
+    // Only massive stars get strong flares (scales up to 1.0)
+    float flareIntensity = clamp(v_mass / 500.0, 0.0, 1.0); 
+    float flares = (flareX + flareY) * flareIntensity;
+
+    // 4. Atmospheric Corona
+    float corona = exp(-r * 4.5) * 0.8;
+
+    // 5. Final Composition
+    // Mix the deep space corona/flares with the solid 3D textured surface
+    vec3 finalColor = mix(color * (corona + flares), surfaceColor, isCore);
+    
+    // Add a blinding white hotspot directly in the center
+    finalColor += vec3(exp(-r * 25.0));
+
+    // Output the final combined light elements
+    gl_FragColor = vec4(finalColor, isCore + corona + flares);
   }
 `;
 
@@ -74,8 +127,8 @@ gl.useProgram(prog);
 const posLoc = gl.getAttribLocation(prog, 'a_position');
 const massLoc = gl.getAttribLocation(prog, 'a_mass');
 const resLoc = gl.getUniformLocation(prog, 'u_resolution');
-const offsetLoc = gl.getUniformLocation(prog, 'u_offset'); // NEW
-const zoomLoc = gl.getUniformLocation(prog, 'u_zoom');     // NEW
+const offsetLoc = gl.getUniformLocation(prog, 'u_offset'); 
+const zoomLoc = gl.getUniformLocation(prog, 'u_zoom');     
 
 const vbo = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, vbo);

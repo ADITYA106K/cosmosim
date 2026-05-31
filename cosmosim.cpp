@@ -332,21 +332,26 @@ void initDisk(float cx, float cy, float spin, int N, float totalMass)
     std::mt19937 rng(N);
     std::exponential_distribution<float> radDist(0.5f);
     std::uniform_real_distribution<float> angleDist(0.0f, 2.0f * 3.14159265f);
-    std::uniform_real_distribution<float> massDist(3.0f, 15.0f);
+    // Use an exponential distribution for mass: Lots of small dust, a few massive giants
+    std::exponential_distribution<float> massDist(0.05f); 
     
-    for (int i = 0; i < N; i++)
+    // Spawn a Supermassive Black Hole at the direct center of the galaxy
+    particles.push_back({cx, cy, 0.0f, 0.0f, 2000.0f});
+    for (int i = 0; i < N - 1; i++) // N-1 because we just manually added the black hole
     {
         float r = radDist(rng) * 180.0f;
         float angle = angleDist(rng);
         float x = cx + r * std::cos(angle);
         float y = cy + r * std::sin(angle);
         
-        // v = sqrt(G * M / r) gives each particle the right speed for a circular orbit
         float vCirc = std::sqrt(G * totalMass / (r + 10.0f));
         float vx = -spin * vCirc * std::sin(angle);
         float vy = spin * vCirc * std::cos(angle);
         
-        particles.push_back({x, y, vx, vy, massDist(rng)});
+        // Base mass of 3.0 + the exponential spike
+        float finalMass = 3.0f + massDist(rng);
+        
+        particles.push_back({x, y, vx, vy, finalMass});
     }
 }
 
