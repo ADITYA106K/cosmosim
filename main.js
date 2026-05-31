@@ -245,12 +245,21 @@ function drawEnergyGraph() {
 
   function getY(val) { return (baseline - val) * scale; }
 
+  // Define colors
+  const peColor = "#FF5252"; // NEW: Bright Coral Red (distinct from UI borders)
+  const keColor = "#DDAA00"; // Gold
+  const teColor = "#FFFFFF"; // White
+
   // 2. Draw 0-Axis Baseline (Ghostly white line)
   ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, getY(0)); ctx.lineTo(eCanvas.width, getY(0)); ctx.stroke();
 
-  // 3. Draw Potential Energy (Deep Cyan)
-  ctx.strokeStyle = "#0A7E8C"; 
+  // SET GLOBAL LINE WIDTH FOR ENERGY CURVES (Thicker!)
+  ctx.lineWidth = 2.0;
+
+  // 3. Draw Potential Energy
+  ctx.strokeStyle = peColor; 
   ctx.beginPath();
   for(let i=0; i<energyHistory.length; i++) {
       if(i===0) ctx.moveTo(i, getY(energyHistory[i].pe));
@@ -258,8 +267,8 @@ function drawEnergyGraph() {
   }
   ctx.stroke();
 
-  // 4. Draw Kinetic Energy (Gold)
-  ctx.strokeStyle = "#DDAA00"; 
+  // 4. Draw Kinetic Energy
+  ctx.strokeStyle = keColor; 
   ctx.beginPath();
   for(let i=0; i<energyHistory.length; i++) {
       if(i===0) ctx.moveTo(i, getY(energyHistory[i].ke));
@@ -267,22 +276,28 @@ function drawEnergyGraph() {
   }
   ctx.stroke();
 
-  // 5. Draw Total Energy (Thick White Line)
-  ctx.strokeStyle = "#FFFFFF"; 
-  ctx.lineWidth = 2;
+  // 5. Draw Total Energy (Slightly thicker than the other two)
+  ctx.strokeStyle = teColor; 
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
   for(let i=0; i<energyHistory.length; i++) {
       if(i===0) ctx.moveTo(i, getY(energyHistory[i].te));
       else ctx.lineTo(i, getY(energyHistory[i].te));
   }
   ctx.stroke();
+  
+  // Reset line width
   ctx.lineWidth = 1;
 
-  // 6. Print live metric numbers
+  // 6. FIX TEXT CUTOFF: Draw a dark mask box behind the text
+  ctx.fillStyle = "rgba(5, 10, 18, 0.85)"; // Matches your app's background color
+  ctx.fillRect(5, 4, 150, 52); 
+
+  // 7. Print live metric numbers
   let last = energyHistory[energyHistory.length-1];
-  ctx.fillStyle = "#DDAA00"; ctx.fillText("Kinetic:   " + Math.round(last.ke), 10, 16);
-  ctx.fillStyle = "#0A7E8C"; ctx.fillText("Potential: " + Math.round(last.pe), 10, 32);
-  ctx.fillStyle = "#FFFFFF"; ctx.fillText("TOTAL (E): " + Math.round(last.te), 10, 48);
+  ctx.fillStyle = keColor; ctx.fillText("Kinetic:   " + Math.round(last.ke), 10, 16);
+  ctx.fillStyle = peColor; ctx.fillText("Potential: " + Math.round(last.pe), 10, 32);
+  ctx.fillStyle = teColor; ctx.fillText("TOTAL (E): " + Math.round(last.te), 10, 48);
 }
 // ----------------------------------------------
 
