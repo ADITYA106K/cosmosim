@@ -381,4 +381,37 @@ EXTERN void initBinaryStar()
         float x = pos(rng), y = pos(rng);
         particles.push_back({x, y, 0.0f, 0.0f, massDist(rng)});
     }
+} // <-- THIS WAS THE MISSING BRACKET!
+
+// 1. Calculate Total Kinetic Energy (K = 1/2 * m * v^2)
+EXTERN double getKineticEnergy() {
+    double ke = 0.0;
+    for (const auto& p : particles) {
+        ke += 0.5 * p.mass * (p.vx * p.vx + p.vy * p.vy);
+    }
+    return ke;
+}
+
+// 2. Calculate Total Potential Energy (U = -G * m1 * m2 / r)
+EXTERN double getPotentialEnergy() {
+    double pe = 0.0;
+    const float softeningSq = 4.0f; // Prevents division by zero for overlapping particles
+
+    int n = particles.size();
+    for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++) {
+            float dx = particles[j].x - particles[i].x;
+            float dy = particles[j].y - particles[i].y;
+            float distSq = dx * dx + dy * dy + softeningSq;
+            
+            // Assuming G = 1.0 in your physics units
+            pe -= (particles[i].mass * particles[j].mass) / std::sqrt(distSq);
+        }
+    }
+    return pe;
+}
+
+// 3. The Grand Total (E = K + U)
+EXTERN double getTotalEnergy() {
+    return getKineticEnergy() + getPotentialEnergy();
 }
